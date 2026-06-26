@@ -1,0 +1,170 @@
+# AbuseIPDB Lookup Tool with Hotkey (Shift+Alt+A)
+# Requires: AbuseIPDB API key. Get one free at https://www.abuseipdb.com/account/api
+
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# ==== CONFIG ====
+$ApiKey = "YOUR_ABUSEIPDB_API_KEY_HERE"
+$MaxAgeInDays = 90
+# ================
+
+function Show-IpInputBox {
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "AbuseIPDB Lookup"
+    $form.Size = New-Object System.Drawing.Size(420, 360)
+    $form.StartPosition = "CenterScreen"
+    $form.TopMost = $true
+
+    $label = New-Object System.Windows.Forms.Label
+    $label.Text = "Enter IP address(es) - one per line, comma, or space separated:"
+    $label.AutoSize = $true
+    $label.Location = New-Object System.Drawing.Point(10, 10)
+    $form.Controls.Add($label)
+
+    $textBox = New-Object System.Windows.Forms.TextBox
+    $textBox.Multiline = $true
+    $textBox.ScrollBars = "Vertical"
+    $textBox.AcceptsReturn = $true
+    $textBox.Location = New-Object System.Drawing.Point(10, 40)
+    $textBox.Size = New-Object System.Drawing.Size(385, 230)
+    $form.Controls.Add($textBox)
+
+    $okButton = New-Object System.Windows.Forms.Button
+    $okButton.Text = "OK"
+    $okButton.Location = New-Object System.Drawing.Point(230, 285)
+    $okButton.Size = New-Object System.Drawing.Size(75, 28)
+    $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $form.Controls.Add($okButton)
+    $form.AcceptButton = $okButton
+
+    $cancelButton = New-Object System.Windows.Forms.Button
+    $cancelButton.Text = "Cancel"
+    $cancelButton.Location = New-Object System.Drawing.Point(315, 285)
+    $cancelButton.Size = New-Object System.Drawing.Size(80, 28)
+    $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $form.Controls.Add($cancelButton)
+    $form.CancelButton = $cancelButton
+
+    # Ctrl+Enter or plain Enter triggers OK (since textbox accepts Enter, use Ctrl+Enter)
+    $textBox.Add_KeyDown({
+        if ($_.KeyCode -eq "Return" -and $_.Control) {
+            $okButton.PerformClick()
+        }
+    })
+
+    $form.Add_Shown({ $textBox.Focus() })
+    $result = $form.ShowDialog()
+
+    if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+        return $textBox.Text
+    }
+    return $null
+}
+
+function Invoke-AbuseCheck {
+    param([string[]]$IpList)
+
+    $results = @()
+    foreach ($ip in $IpList) {
+        $ip = $ip.Trim()
+        if ([string]::IsNullOrWhiteSpace($ip)) { continue }
+
+        try {
+            $headers = @{
+                "Key"    = $ApiKey
+                "Accept" = "application/json"
+            }
+            $uri = "https://api.abuseipdb.com/api/v2/check?ipAddress=$ip&maxAgeInDays=$MaxAgeInDays&verbose"
+            $resp = Invoke-RestMethod -Uri $uri -Headers $headers -Method Get
+            $d = $resp.data
+
+            $results += [PSCustomObject]@{
+                Address              = $d.ipAddress
+                AbuseConfidenceScore = $d.abuseConfidenceScore
+                IpVersion            = $d.ipVersion
+                IsPublic             = $d.isPublic
+                IsTor                = $d.isTor
+                IsWhitelisted        = $d.isWhitelisted
+                TotalReports         = $d.totalReports
+                NumDistinctUsers     = $d.numDistinctUsers
+                Domain               = $d.domain
+                ISP                  = $d.isp
+                UsageType            = $d.usageType
+                Geo                  = $d.countryName + " (" + $d.countryCode + ")"
+                LastReported         = $d.lastReportedAt
+            }
+        }
+        catch {
+            $results += [PSCustomObject]@{
+                Address              = $ip
+                AbuseConfidenceScore = "ERROR"
+                IpVersion            = ""
+                IsPublic             = ""
+                IsTor                = ""
+                IsWhitelisted        = ""
+                TotalReports         = ""
+                NumDistinctUsers     = ""
+                Domain               = ""
+                ISP                  = ""
+                UsageType            = ""
+                Geo                  = $_.Exception.Message
+                LastReported         = ""
+            }
+        }
+    }
+    return $results
+}
+
+function Show-ResultsGrid {
+    param([object[]]$Data)
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = "AbuseIPDB Results"
+    $form.Size = New-Object System.Drawing.Size(1200, 500)
+    $form.StartPosition = "CenterScreen"
+    $form.TopMost = $true
+
+    $grid = New-Object System.Windows.Forms.DataGridView
+    $grid.Dock = "Fill"
+    $grid.AutoSizeColumnsMode = "AllCells"
+    $grid.ReadOnly = $true
+    $grid.AllowUserToAddRows = $false
+    $grid.SelectionMode = "FullRowSelect"
+
+    $dt = New-Object System.Data.DataTable
+    $cols = "Address","AbuseConfidenceScore","IpVersion","IsPublic","IsTor","IsWhitelisted","TotalReports","NumDistinctUsers","Domain","ISP","UsageType","Geo","LastReported"
+    foreach ($c in $cols) { [void]$dt.Columns.Add($c) }
+
+    foreach ($row in $Data) {
+        $r = $dt.NewRow()
+        foreach ($c in $cols) { $r[$c] = [string]$row.$c }
+        [void]$dt.Rows.Add($r)
+    }
+    $grid.DataSource = $dt
+
+    # Color high-risk rows
+    $grid.Add_DataBindingComplete({
+        foreach ($gr in $grid.Rows) {
+            $score = $gr.Cells["AbuseConfidenceScore"].Value
+            if ($score -match '^\d+$' -and [int]$score -ge 50) {
+                $gr.DefaultCellStyle.BackColor = [System.Drawing.Color]::MistyRose
+            } elseif ($score -match '^\d+$' -and [int]$score -gt 0) {
+                $gr.DefaultCellStyle.BackColor = [System.Drawing.Color]::LightYellow
+            }
+        }
+    })
+
+    $form.Controls.Add($grid)
+    [void]$form.ShowDialog()
+}
+
+# ==== MAIN ====
+$input = Show-IpInputBox
+if ($input) {
+    $ips = $input -split "[\r\n,; ]+" | Where-Object { $_ -ne "" }
+    if ($ips.Count -gt 0) {
+        $data = Invoke-AbuseCheck -IpList $ips
+        Show-ResultsGrid -Data $data
+    }
+}
