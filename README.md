@@ -5,7 +5,7 @@ IPs, comma-separated lists, or pipeline input.
 
 **Set the variable (choose one):**
 
-User-level, persistent (recommended — survives reboots):
+User-level, persistent (survives reboots):
 
 powershell
 
