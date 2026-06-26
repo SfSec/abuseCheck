@@ -1,8 +1,7 @@
 # abuseCheck
 abuseCheck queries the AbuseIPDB API for each supplied IP address and returns
 its abuse confidence score, report count, country, and ISP. It accepts single
-IPs, comma-separated lists, or pipeline input, and can output results to the
-console or export them to CSV for reporting and triage.
+IPs, comma-separated lists, or pipeline input.
 
 **Set the variable (choose one):**
 
