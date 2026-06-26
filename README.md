@@ -22,3 +22,5 @@ setx ABUSEIPDB_KEY "your_key_here"
 ```
 
 **Then open a new terminal and run the script and it should work.**
+
+Hotkey activation: `shift` + `alt` + `a` 
